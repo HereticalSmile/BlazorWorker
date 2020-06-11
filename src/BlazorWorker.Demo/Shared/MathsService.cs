@@ -105,7 +105,7 @@ namespace BlazorWorker.Demo.Shared
                     var progressDelta = (Math.Abs(i - lastReport) / (double)sumLength) * 100;
                     if (progressDelta > 3 || i >= sumLength - 1)
                     {
-                        await Task.Delay(10);
+                        await Task.Delay(1);
                         Console.WriteLine($"{nameof(BeginEstimatePI)}: {nameof(cancellationToken.IsCancellationRequested)}={cancellationToken.IsCancellationRequested} {cancellationToken.GetHashCode()}");
                         cancellationToken.ThrowIfCancellationRequested();
                         lastReport = i;
