@@ -1,0 +1,132 @@
+﻿@page "/cancellation"
+@inject IWorkerFactory workerFactory
+
+<div class="row">
+    <div class="col-5 col-xs-12">
+        <h1>.NET Worker Thread and cancellation</h1>
+
+        Welcome to your new threaded app.
+
+        <br /><br />
+        Pi estimation with cancellation demo. Specify number of iterations. <br />
+        <input type="text" @bind="piIterations" placeholder="estimation iterations" /><br />
+        <progress max=@piIterations value="@piProgress" /><br /><br />
+        If checked, will cancel at @cancelAt%.<br/>
+        <input type="checkbox" @bind="cancel" /> <input type="number" @bind="cancelAt" placeholder="will cancel task at this percentage of progress." />
+        <button disabled=@RunDisabled @onclick=OnClick class="btn btn-primary">Run test</button><br /><br />
+        <br />
+        <br />
+        <strong>Output:</strong>
+        <hr />
+<pre>
+@output
+</pre>
+    </div>
+    <div class="col-7 col-xs-12">
+        <GithubSource RelativePath="Pages/Cancellation.razor" />
+    </div>
+</div>
+@code {
+    int piIterations = 5_000_000;
+    int piProgress = 0;
+    string output;
+    IWorker worker;
+    IWorkerBackgroundService<MathsService> backgroundService;
+    string canDisposeWorker => worker == null ? "disabled" : null;
+    string canDisposeService => backgroundService == null ? "disabled": RunDisabled;
+    string RunDisabled => Running ? "disabled" : null;
+    bool Running = false;
+    bool cancel = false;
+    int cancelAt = 30;
+    int cancellationSourceId = 0;
+    public async Task OnClick(EventArgs _)
+    {
+        Running = true;
+        output = "";
+        var rn = Environment.NewLine;
+        try
+        {
+
+            if (worker == null)
+            {
+                worker = await workerFactory.CreateAsync();
+            }
+
+            var sw = new System.Diagnostics.Stopwatch();
+            this.cancellationSourceId = 0;
+            if (backgroundService == null)
+            {
+                output = $"{rn}{LogDate()} Creating background service...";
+                StateHasChanged();
+
+                sw.Start();
+                backgroundService = await worker.CreateBackgroundServiceAsync<MathsService>();
+
+                await backgroundService.RegisterEventListenerAsync(nameof(MathsService.PiCancellable),
+                        (object s, Tuple<int, double?> eventData) =>
+                        {
+                            piProgress = eventData.Item1;
+
+                            var isDone = eventData.Item2 != null;
+                            if (isDone)
+                            {
+                                output += $"{rn}{LogDate()} {nameof(MathsService.EstimatePICancellable)}({piIterations}, {this.cancellationSourceId}) = {eventData.Item2}";
+                                Running = false;
+                            }
+
+                            if (cancel && ((piProgress/(decimal)piIterations)* 100) > cancelAt)
+                            {
+                                output += $"{rn}{LogDate()} Cancelling...";
+                                this.InvokeAsync(StateHasChanged);
+                                var localCancellationSourceId = this.cancellationSourceId;
+                                backgroundService.RunAsync(x => x.CancelCancellationToken(localCancellationSourceId)).ContinueWith(t => {
+                                    output += $"{rn}{LogDate()} Cancelled.";
+                                    Running = false;
+                                    this.InvokeAsync(StateHasChanged);
+                                });
+                            }
+                            this.InvokeAsync(StateHasChanged);
+                        });
+                sw.Stop();
+                output += $"{rn}{LogDate()} Background service created in {sw.ElapsedMilliseconds}ms";
+                StateHasChanged();
+            }
+
+            var localParamValue = piIterations;
+
+            output += $"{rn}{LogDate()} Calling GetCancellationToken()...";
+            this.cancellationSourceId = await backgroundService.RunAsync(x => x.GetCancellationToken());
+            output += $"{rn}{LogDate()} Calling EstimatePI({piIterations}, {cancellationSourceId})...";
+
+            var localCancellationSourceId = this.cancellationSourceId;
+            await backgroundService.RunAsync(s => s.EstimatePICancellable(localParamValue, localCancellationSourceId));
+
+            StateHasChanged();
+
+        }
+        catch (Exception e)
+        {
+            output += $"{rn}Error = {e}";
+            Running = false;
+        }
+    }
+
+    public async Task OnDisposeService()
+    {
+        await backgroundService.DisposeAsync();
+        backgroundService = null;
+    }
+
+    public async Task OnDisposeWorker()
+    {
+        await worker.DisposeAsync();
+        worker = null;
+        backgroundService = null;
+        Running = false;
+    }
+
+    private string LogDate()
+    {
+        return DateTime.Now.ToString("HH:mm:ss:fff");
+    }
+}

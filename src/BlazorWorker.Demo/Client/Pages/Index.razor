@@ -32,8 +32,8 @@
     string output;
     IWorker worker;
     IWorkerBackgroundService<MathsService> backgroundService;
-    string canDisposeWorker => worker == null ? null : "disabled";
-    string canDisposeService => backgroundService == null ? null : "disabled";
+    string canDisposeWorker => worker == null ? "disabled" : null;
+    string canDisposeService => backgroundService == null ? "disabled": RunDisabled;
     string RunDisabled => Running ? "disabled" : null;
     bool Running = false;
 
@@ -103,6 +103,7 @@
         await worker.DisposeAsync();
         worker = null;
         backgroundService = null;
+        Running = false;
     }
 
     private string LogDate()
